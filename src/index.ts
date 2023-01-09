@@ -1,3 +1,4 @@
+import "dotenv/config"
 import { WebSocketServer, WebSocket } from "ws"
 
 const PORT = isNaN(parseInt(process.env.PORT ?? "")) ? 80 : parseInt(process.env.PORT as string)
