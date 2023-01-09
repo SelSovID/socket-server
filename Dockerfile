@@ -1,4 +1,4 @@
-FROM node:18
+FROM node:18 as build
 ENV NODE_ENV=development
 
 WORKDIR /app
@@ -11,5 +11,15 @@ ENV NODE_ENV=production
 COPY . .
 
 RUN npm run build
+
+FROM node:18-alpine
+
+EXPOSE 80
+ENV PORT=80
+ENV LOG_LEVEL=trace
+
+WORKDIR /app
+COPY --from=build /app/package*.json ./
+COPY --from=build /app/dist ./dist
 
 CMD ["npm", "start"]
