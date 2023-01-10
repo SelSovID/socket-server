@@ -7,7 +7,7 @@ const PORT = isNaN(parseInt(process.env.PORT ?? "")) ? 80 : parseInt(process.env
 const rooms = new Map<string, Set<WebSocket>>()
 const socketToRooms = new Map<WebSocket, Set<string>>()
 
-type WsMessage = WsOpenMessage | WsCloseMessage | WsMessgaeMessage
+type WsMessage = WsOpenMessage | WsCloseMessage | WsMessageMessage
 
 type WsOpenMessage = {
   type: "open"
@@ -19,10 +19,15 @@ type WsCloseMessage = {
   channel: string
 }
 
-type WsMessgaeMessage = {
+type WsMessageMessage = {
   type: "message"
   channel: string
   payload: string
+}
+
+type WsJoinMessage = {
+  type: "join"
+  channel: string
 }
 
 const wss = new WebSocketServer({ port: PORT })
@@ -38,6 +43,11 @@ wss.on("connection", ws => {
       if (type === "open") {
         logger.trace({ channel: roomId }, "open channel")
         if (rooms.has(roomId)) {
+          const room = rooms.get(roomId)!
+          const joinMessage: WsJoinMessage = { type: "join", channel: roomId }
+          for (const client of room) {
+            client.send(JSON.stringify(joinMessage))
+          }
           rooms.get(roomId)!.add(ws)
         } else {
           const channelList = new Set([ws])
