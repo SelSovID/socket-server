@@ -4,7 +4,8 @@ import logger from "./log.js"
 
 const PORT = isNaN(parseInt(process.env.PORT ?? "")) ? 80 : parseInt(process.env.PORT as string)
 
-const channelListeners: Record<string, WebSocket[]> = {}
+const rooms = new Map<string, Set<WebSocket>>()
+const socketToRooms = new Map<WebSocket, Set<string>>()
 
 type WsMessage = WsOpenMessage | WsCloseMessage | WsMessgaeMessage
 
@@ -33,34 +34,61 @@ wss.on("connection", ws => {
     logger.trace({ message: message.toString() }, "new message")
     try {
       const data: WsMessage = JSON.parse(message.toString())
-      const { channel, type } = data
+      const { channel: roomId, type } = data
       if (type === "open") {
-        logger.trace({ channel }, "open channel")
-        channelListeners[channel] = channelListeners[channel] ?? []
-        channelListeners[channel].push(ws)
-      } else if (channelListeners[channel] == null) {
-        logger.error({ channel }, "channel not found")
+        logger.trace({ channel: roomId }, "open channel")
+        if (rooms.has(roomId)) {
+          rooms.get(roomId)!.add(ws)
+        } else {
+          const channelList = new Set([ws])
+          rooms.set(roomId, channelList)
+        }
+        if (socketToRooms.has(ws)) {
+          socketToRooms.get(ws)!.add(roomId)
+        } else {
+          const socketList = new Set([roomId])
+          socketToRooms.set(ws, socketList)
+        }
+      } else if (!rooms.has(roomId)) {
+        logger.error({ channel: roomId }, "channel not found")
         ws.send(JSON.stringify({ type: "error", payload: "channel not found" }))
       } else if (type === "close") {
-        logger.trace({ channel }, "close channel")
-        for (const sock of channelListeners[channel]) {
-          sock.send(JSON.stringify({ type: "close" }))
+        logger.trace({ channel: roomId }, "close channel")
+        for (const sock of rooms.get(roomId)!) {
+          socketToRooms.get(ws)!.delete(roomId)
+          if (socketToRooms.get(ws)!.size === 0) {
+            socketToRooms.delete(ws)
+          }
+          sock.send(JSON.stringify({ type: "close", channel: roomId }))
           sock.close()
         }
-        delete channelListeners[channel]
+        rooms.delete(roomId)
       } else if (type === "message") {
         const { payload } = data
-        logger.trace({ channel, payload }, "new message in channel")
-        for (const sock of channelListeners[channel]) {
+        logger.trace({ channel: roomId, payload }, "new message in channel")
+        for (const sock of rooms.get(roomId)!) {
           if (sock !== ws) {
-            sock.send(JSON.stringify({ type: "message", payload }))
+            sock.send(JSON.stringify({ type: "message", channel: roomId, payload }))
           }
         }
       } else {
-        ws.send(JSON.stringify({ type: "error", payload: "unknown message type" }))
+        ws.send(JSON.stringify({ type: "error", channel: roomId, payload: "unknown message type" }))
       }
     } catch (e) {
       ws.send(JSON.stringify({ type: "error", payload: "invalid message" }))
+    }
+  })
+
+  ws.on("close", () => {
+    logger.trace("connection closed")
+    if (socketToRooms.has(ws)) {
+      for (const roomId of socketToRooms.get(ws)!) {
+        rooms.get(roomId)!.delete(ws)
+        if (rooms.get(roomId)!.size === 0) {
+          rooms.delete(roomId)
+        }
+      }
+      socketToRooms.delete(ws)
     }
   })
 })
