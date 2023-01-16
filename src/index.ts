@@ -59,27 +59,34 @@ wss.on("connection", ws => {
           const socketList = new Set([roomId])
           socketToRooms.set(ws, socketList)
         }
-      } else if (!rooms.has(roomId)) {
-        logger.error({ channel: roomId }, "channel not found")
-        ws.send(JSON.stringify({ type: "error", payload: "channel not found" }))
       } else if (type === "close") {
-        logger.trace({ channel: roomId }, "close channel")
-        for (const sock of rooms.get(roomId)!) {
-          socketToRooms.get(ws)!.delete(roomId)
-          if (socketToRooms.get(ws)!.size === 0) {
-            socketToRooms.delete(ws)
+        if (rooms.has(roomId)) {
+          logger.trace({ channel: roomId }, "close channel")
+          for (const sock of rooms.get(roomId)!) {
+            socketToRooms.get(ws)!.delete(roomId)
+            if (socketToRooms.get(ws)!.size === 0) {
+              socketToRooms.delete(ws)
+            }
+            sock.send(JSON.stringify({ type: "close", channel: roomId }))
+            sock.close()
           }
-          sock.send(JSON.stringify({ type: "close", channel: roomId }))
-          sock.close()
+          rooms.delete(roomId)
+        } else {
+          logger.error({ channel: roomId }, "channel not found")
+          ws.send(JSON.stringify({ type: "error", payload: "channel not found" }))
         }
-        rooms.delete(roomId)
       } else if (type === "message") {
-        const { payload } = data
-        logger.trace({ channel: roomId, payload }, "new message in channel")
-        for (const sock of rooms.get(roomId)!) {
-          if (sock !== ws) {
-            sock.send(JSON.stringify({ type: "message", channel: roomId, payload }))
+        if (rooms.has(roomId)) {
+          const { payload } = data
+          logger.trace({ channel: roomId, payload }, "new message in channel")
+          for (const sock of rooms.get(roomId)!) {
+            if (sock !== ws) {
+              sock.send(JSON.stringify({ type: "message", channel: roomId, payload }))
+            }
           }
+        } else {
+          logger.error({ channel: roomId }, "channel not found")
+          ws.send(JSON.stringify({ type: "error", payload: "channel not found" }))
         }
       } else {
         ws.send(JSON.stringify({ type: "error", channel: roomId, payload: "unknown message type" }))
